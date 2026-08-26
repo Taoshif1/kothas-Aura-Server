@@ -16,4 +16,18 @@ const client = new MongoClient(uri, {
   },
 });
 
+export const getDatabase = () =>
+  client.db(process.env.DB_NAME || "kothasaura");
+
+export const ensureIndexes = async () => {
+  const database = getDatabase();
+  await Promise.all([
+    database.collection("products").createIndex({ slug: 1 }, { unique: true }),
+    database.collection("products").createIndex({ sku: 1 }, { unique: true }),
+    database.collection("categories").createIndex({ slug: 1 }, { unique: true }),
+    database.collection("users").createIndex({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: "string" } } }),
+    database.collection("users").createIndex({ firebaseUid: 1 }, { unique: true }),
+  ]);
+};
+
 export default client;
