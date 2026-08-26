@@ -29,6 +29,9 @@ export const ensureIndexes = async () => {
     database.collection("users").createIndex({ firebaseUid: 1 }, { unique: true }),
     database.collection("carts").createIndex({ userId: 1 }, { unique: true }),
     database.collection("wishlist").createIndex({ userId: 1 }, { unique: true }),
+    database.collection("orders").createIndex({ orderNumber: 1 }, { unique: true }),
+    database.collection("orders").createIndex({ idempotencyKey: 1 }, { unique: true }),
+    database.collection("orders").createIndex({ "payment.transactionId": 1 }, { unique: true, partialFilterExpression: { "payment.transactionId": { $type: "string", $gt: "" } } }),
   ]);
 };
 

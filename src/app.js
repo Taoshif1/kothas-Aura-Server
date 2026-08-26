@@ -12,6 +12,11 @@ import cartRoutes from "./modules/cart/cart.routes.js";
 import wishlistRoutes from "./modules/wishlist/wishlist.routes.js";
 import validateOrigin from "./middleware/validateOrigin.js";
 import { getAllowedOrigins } from "./config/environment.js";
+import settingsRoutes from "./modules/settings/settings.routes.js";
+import addressRoutes from "./modules/addresses/address.routes.js";
+import checkoutRoutes from "./modules/checkout/checkout.routes.js";
+import orderRoutes from "./modules/orders/order.routes.js";
+import adminOrderRoutes from "./modules/orders/adminOrder.routes.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -45,6 +50,11 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
+app.use("/api/settings", settingsRoutes);
+app.use("/api/addresses", addressRoutes);
+app.use("/api/checkout", checkoutRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/admin/orders", adminOrderRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

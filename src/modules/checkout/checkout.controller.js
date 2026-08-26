@@ -1,0 +1,1 @@
+import{calculateCheckout}from"./checkout.service.js";export const preview=async(req,res)=>{const result=await calculateCheckout(req.body?.items,req.body?.deliveryZone);delete result.settings;res.json(result);};
