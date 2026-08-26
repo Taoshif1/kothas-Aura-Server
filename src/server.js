@@ -5,11 +5,13 @@ dotenv.config();
 import app from "./app.js";
 import client, { ensureIndexes, getDatabase } from "./config/mongodb.js";
 import { getFirebaseAdminAuth } from "./config/firebaseAdmin.js";
+import { validateEnvironment } from "./config/environment.js";
 
 const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
+    validateEnvironment();
     await client.connect();
     await ensureIndexes();
     getFirebaseAdminAuth();

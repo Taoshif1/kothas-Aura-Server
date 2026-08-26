@@ -27,6 +27,8 @@ export const ensureIndexes = async () => {
     database.collection("categories").createIndex({ slug: 1 }, { unique: true }),
     database.collection("users").createIndex({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: "string" } } }),
     database.collection("users").createIndex({ firebaseUid: 1 }, { unique: true }),
+    database.collection("carts").createIndex({ userId: 1 }, { unique: true }),
+    database.collection("wishlist").createIndex({ userId: 1 }, { unique: true }),
   ]);
 };
 

@@ -1,0 +1,11 @@
+import { Router } from "express";
+import verifyJWT from "../../middleware/verifyJWT.js";
+import asyncHandler from "../../utils/asyncHandler.js";
+import { addWishlistItem, getWishlist, mergeWishlist, removeWishlistItem } from "./wishlist.controller.js";
+const router = Router();
+router.use(verifyJWT);
+router.get("/", asyncHandler(getWishlist));
+router.post("/merge", asyncHandler(mergeWishlist));
+router.post("/:productId", asyncHandler(addWishlistItem));
+router.delete("/:productId", asyncHandler(removeWishlistItem));
+export default router;

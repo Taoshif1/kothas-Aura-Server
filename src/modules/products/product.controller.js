@@ -10,6 +10,13 @@ const parseId = (id) => {
   return new ObjectId(id);
 };
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const ensureSkuAvailability = async (product, excludedId) => {
+  const skus = [product.sku, ...(product.variants || []).map((variant) => variant.sku)].filter(Boolean);
+  if (!skus.length) return;
+  const filter = { $or: [{ sku: { $in: skus } }, { "variants.sku": { $in: skus } }] };
+  if (excludedId) filter._id = { $ne: excludedId };
+  if (await collection().findOne(filter)) throw httpError(409, "A base or variant SKU already exists on another product");
+};
 
 export const getProducts = async (req, res) => {
   const { search, category, subcategory, featured, sort = "newest" } = req.query;
@@ -37,8 +44,8 @@ export const createProduct = async (req, res) => {
   product.slug ||= createSlug(product.name);
   const errors = validateProduct(product);
   if (errors.length) throw httpError(400, "Validation failed", errors);
-  const duplicate = await collection().findOne({ $or: [{ slug: product.slug }, { sku: product.sku }] });
-  if (duplicate) throw httpError(409, "A product with this slug or SKU already exists");
+  if (await collection().findOne({ slug: product.slug })) throw httpError(409, "Product slug already exists");
+  await ensureSkuAvailability(product);
   const now = new Date();
   const document = { ...product, images: product.images || [], compareAtPrice: product.compareAtPrice ?? null, subcategory: product.subcategory || "", brand: product.brand || "", lowStockThreshold: product.lowStockThreshold ?? 5, specifications: product.specifications || {}, variants: product.variants || [], rating: product.rating ?? 0, reviewCount: product.reviewCount ?? 0, featured: product.featured ?? false, bestseller: product.bestseller ?? false, isNew: product.isNew ?? false, active: product.active ?? true, createdAt: now, updatedAt: now };
   const result = await collection().insertOne(document);
@@ -52,6 +59,9 @@ export const updateProduct = async (req, res) => {
   const errors = validateProduct(changes, { partial: true });
   if (errors.length) throw httpError(400, "Validation failed", errors);
   const _id = parseId(req.params.id);
+  const existing = await collection().findOne({ _id });
+  if (!existing) throw httpError(404, "Product not found");
+  await ensureSkuAvailability({ sku: changes.sku ?? existing.sku, variants: changes.variants ?? existing.variants }, _id);
   if (changes.slug || changes.sku) {
     const duplicateFilters = [];
     if (changes.slug) duplicateFilters.push({ slug: changes.slug });

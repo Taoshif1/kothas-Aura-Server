@@ -1,0 +1,13 @@
+import { Router } from "express";
+import verifyJWT from "../../middleware/verifyJWT.js";
+import asyncHandler from "../../utils/asyncHandler.js";
+import { addCartItem, clearCart, getCart, mergeCart, removeCartItem, updateCartItem } from "./cart.controller.js";
+const router = Router();
+router.use(verifyJWT);
+router.get("/", asyncHandler(getCart));
+router.post("/", asyncHandler(addCartItem));
+router.patch("/", asyncHandler(updateCartItem));
+router.delete("/items/:productId", asyncHandler(removeCartItem));
+router.delete("/", asyncHandler(clearCart));
+router.post("/merge", asyncHandler(mergeCart));
+export default router;
