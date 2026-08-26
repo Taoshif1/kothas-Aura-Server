@@ -1,0 +1,1 @@
+import{Router}from"express";import{rateLimit}from"express-rate-limit";import asyncHandler from"../../utils/asyncHandler.js";import{preview}from"./checkout.controller.js";const r=Router();r.use(rateLimit({windowMs:60*1000,limit:30}));r.post("/preview",asyncHandler(preview));export default r;

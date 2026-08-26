@@ -1,0 +1,4 @@
+import { getDatabase } from "../../config/mongodb.js";
+export const defaults = { _id: "store", storeName: "Kotha's Aura", delivery: { insideDhaka: 80, outsideDhaka: 130, freeDeliveryThreshold: null }, payments: { cod: { enabled: true }, bkash: { enabled: false, number: "" }, nagad: { enabled: false, number: "" } }, maintenanceMode: false };
+export const getStoreSettings = async () => { const stored = await getDatabase().collection("settings").findOne({ _id: "store" }); return { ...defaults, ...stored, delivery: { ...defaults.delivery, ...stored?.delivery }, payments: { cod: { ...defaults.payments.cod, ...stored?.payments?.cod }, bkash: { ...defaults.payments.bkash, ...stored?.payments?.bkash }, nagad: { ...defaults.payments.nagad, ...stored?.payments?.nagad } } }; };
+export const publicSettings = (value) => ({ storeName: value.storeName, delivery: value.delivery, payments: value.payments, maintenanceMode: value.maintenanceMode });
