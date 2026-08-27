@@ -1,0 +1,1 @@
+import{Router}from"express";import verifyJWT from"../../middleware/verifyJWT.js";import verifyAdmin from"../../middleware/verifyAdmin.js";import asyncHandler from"../../utils/asyncHandler.js";import{list}from"./newsletter.controller.js";const r=Router();r.use(verifyJWT,verifyAdmin);r.get("/",asyncHandler(list));export default r;

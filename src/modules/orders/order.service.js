@@ -52,7 +52,7 @@ export const createOrder = async (body, { userId = null, selections, customerTyp
   let order;
   try {
     await session.withTransaction(async () => {
-      const calculation = await calculateCheckout(selections, body.deliveryAddress?.deliveryZone, { session });
+      const calculation = await calculateCheckout(selections, body.deliveryAddress?.deliveryZone, { session, couponCode: body.couponCode });
       validateOrderInput(body, calculation);
       await reserveInventory(calculation.items, session);
       const now = new Date();
@@ -60,11 +60,12 @@ export const createOrder = async (body, { userId = null, selections, customerTyp
         orderNumber: await uniqueOrderNumber(orders, session), idempotencyKey: body.idempotencyKey.trim(), customerType, orderSource: body.orderSource, userId,
         customer: { ...body.customer, phone: normalizePhone(body.customer.phone) },
         deliveryAddress: { ...body.deliveryAddress, phone: normalizePhone(body.deliveryAddress.phone) },
-        items: calculation.items.map(({ availableStock, ...item }) => item), subtotal: calculation.subtotal, discount: 0, deliveryCharge: calculation.deliveryCharge, total: calculation.total,
+        items: calculation.items.map(({ availableStock, ...item }) => item), subtotal: calculation.subtotal, coupon: calculation.coupon, discount: calculation.discount, deliveryCharge: calculation.deliveryCharge, total: calculation.total,
         payment: { method: body.payment.method, status: body.payment.method === "cod" ? "due" : "pending_verification", transactionId: body.payment.transactionId?.trim() || "", senderPhone: normalizePhone(body.payment.senderPhone || ""), verifiedAt: null, verifiedBy: null },
         orderStatus: "Pending", statusHistory: [{ status: "Pending", changedAt: now, changedBy: userId }], inventoryRestored: false, createdAt: now, updatedAt: now,
       };
       await orders.insertOne(order, { session });
+      if (calculation.couponDocument) { const used=await getDatabase().collection("coupons").updateOne({_id:calculation.couponDocument._id,...(calculation.couponDocument.usageLimit!=null&&{usedCount:{$lt:calculation.couponDocument.usageLimit}})},{$inc:{usedCount:1},$set:{updatedAt:now}},{session});if(!used.modifiedCount)throw Object.assign(new Error("Coupon usage limit has been reached"),{status:409}); }
       if (userId && body.orderSource === "cart") await getDatabase().collection("carts").updateOne({ userId }, { $set: { items: [], updatedAt: now } }, { session });
     });
     return order;

@@ -1,0 +1,1 @@
+import{Router}from"express";import{rateLimit}from"express-rate-limit";import asyncHandler from"../../utils/asyncHandler.js";import{create}from"./contact.controller.js";const r=Router();r.post("/",rateLimit({windowMs:15*60*1000,limit:5}),asyncHandler(create));export default r;

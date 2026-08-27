@@ -28,9 +28,13 @@ export const getProducts = async (req, res) => {
   if (category?.trim()) filter.category = { $regex: `^${escapeRegex(category.trim())}$`, $options: "i" };
   if (subcategory?.trim()) filter.subcategory = { $regex: `^${escapeRegex(subcategory.trim())}$`, $options: "i" };
   if (featured === "true") filter.featured = true;
+  const minPrice = Number(req.query.minPrice); const maxPrice = Number(req.query.maxPrice);
+  if (Number.isFinite(minPrice) || Number.isFinite(maxPrice)) filter.price = { ...(Number.isFinite(minPrice) && { $gte: minPrice }), ...(Number.isFinite(maxPrice) && { $lte: maxPrice }) };
+  if (req.query.availability === "in_stock") filter.$expr = { $gt: [{ $cond: [{ $gt: [{ $size: { $ifNull: ["$variants", []] } }, 0] }, { $sum: { $map: { input: { $filter: { input: "$variants", as: "variant", cond: { $ne: ["$$variant.active", false] } } }, as: "variant", in: "$$variant.stock" } } }, "$stock"] }, 0] };
   const sorts = { newest: { createdAt: -1 }, price_asc: { price: 1 }, price_desc: { price: -1 }, popularity: { rating: -1, reviewCount: -1 } };
-  const result = await collection().find(filter).sort(sorts[sort] || sorts.newest).toArray();
-  res.json({ products: result, count: result.length });
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1); const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 24));
+  const [result, count] = await Promise.all([collection().find(filter).sort(sorts[sort] || sorts.newest).skip((page - 1) * limit).limit(limit).toArray(), collection().countDocuments(filter)]);
+  res.json({ products: result, count, page, limit, totalPages: Math.ceil(count / limit) });
 };
 
 export const getProductById = async (req, res) => {
