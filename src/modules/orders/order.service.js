@@ -1,10 +1,29 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import client, { getDatabase } from "../../config/mongodb.js";
 import { calculateCheckout } from "../checkout/checkout.service.js";
 import { normalizePhone } from "../addresses/address.controller.js";
 
 const allowedPayments = new Set(["cod", "bkash", "nagad"]);
 export const makeOrderNumber = () => `KA-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomBytes(4).toString("hex").toUpperCase()}`;
+const normalizedText = (value) => String(value || "").trim();
+export const createIdempotencyFingerprint = (body, { userId = null, selections = [], customerType }) => {
+  const material = {
+    customerType,
+    actor: customerType === "registered" ? String(userId || "") : normalizePhone(body.customer?.phone || ""),
+    orderSource: body.orderSource,
+    items: selections.map((item) => ({ productId: String(item.productId || ""), variantSku: normalizedText(item.variantSku), quantity: Number(item.quantity) })).sort((a,b)=>`${a.productId}:${a.variantSku}`.localeCompare(`${b.productId}:${b.variantSku}`)),
+    customerPhone: normalizePhone(body.customer?.phone || ""),
+    deliveryAddress: { recipientName: normalizedText(body.deliveryAddress?.recipientName), phone: normalizePhone(body.deliveryAddress?.phone || ""), addressLine: normalizedText(body.deliveryAddress?.addressLine), area: normalizedText(body.deliveryAddress?.area), city: normalizedText(body.deliveryAddress?.city), postalCode: normalizedText(body.deliveryAddress?.postalCode), deliveryZone: body.deliveryAddress?.deliveryZone || "" },
+    payment: { method: body.payment?.method || "", transactionId: normalizedText(body.payment?.transactionId), senderPhone: normalizePhone(body.payment?.senderPhone || "") },
+    couponCode: normalizedText(body.couponCode).toUpperCase(),
+  };
+  return createHash("sha256").update(JSON.stringify(material)).digest("hex");
+};
+const sameActor = (order, { userId, customerType }, body) => order.customerType === customerType && (customerType === "registered" ? Boolean(userId && order.userId && String(order.userId)===String(userId)) : normalizePhone(order.customer?.phone || "") === normalizePhone(body.customer?.phone || ""));
+export const resolveIdempotentOrder = (order, context, body, fingerprint) => {
+  if (order && sameActor(order, context, body) && order.idempotencyFingerprint && order.idempotencyFingerprint === fingerprint) return order;
+  throw Object.assign(new Error("Idempotency key was already used for a different order request"), { status: 409 });
+};
 
 export const validateOrderInput = (body, calculation) => {
   if (!body.idempotencyKey?.trim() || body.idempotencyKey.trim().length > 128) throw Object.assign(new Error("A valid idempotency key is required"), { status: 400 });
@@ -46,18 +65,18 @@ const uniqueOrderNumber = async (orders, session) => {
 
 export const createOrder = async (body, { userId = null, selections, customerType }) => {
   const orders = getDatabase().collection("orders");
-  const existing = await orders.findOne({ idempotencyKey: body.idempotencyKey });
-  if (existing) return existing;
-  const session = client.startSession();
-  let order;
-  try {
-    await session.withTransaction(async () => {
+  const key=body.idempotencyKey?.trim();if(!key||key.length>128)throw Object.assign(new Error("A valid idempotency key is required"),{status:400});
+  const context={userId,customerType},fingerprint=createIdempotencyFingerprint(body,{...context,selections});
+  const existing = await orders.findOne({ idempotencyKey: key });
+  if (existing) return resolveIdempotentOrder(existing,context,body,fingerprint);
+  for(let attempt=0;attempt<3;attempt+=1){const session = client.startSession();let order;
+  try { await session.withTransaction(async () => {
       const calculation = await calculateCheckout(selections, body.deliveryAddress?.deliveryZone, { session, couponCode: body.couponCode });
       validateOrderInput(body, calculation);
       await reserveInventory(calculation.items, session);
       const now = new Date();
       order = {
-        orderNumber: await uniqueOrderNumber(orders, session), idempotencyKey: body.idempotencyKey.trim(), customerType, orderSource: body.orderSource, userId,
+        orderNumber: await uniqueOrderNumber(orders, session), idempotencyKey: key, idempotencyFingerprint:fingerprint, customerType, orderSource: body.orderSource, userId,
         customer: { ...body.customer, phone: normalizePhone(body.customer.phone) },
         deliveryAddress: { ...body.deliveryAddress, phone: normalizePhone(body.deliveryAddress.phone) },
         items: calculation.items.map(({ availableStock, ...item }) => item), subtotal: calculation.subtotal, coupon: calculation.coupon, discount: calculation.discount, deliveryCharge: calculation.deliveryCharge, total: calculation.total,
@@ -70,12 +89,11 @@ export const createOrder = async (body, { userId = null, selections, customerTyp
     });
     return order;
   } catch (error) {
-    if (error?.code === 11000) {
-      const retry = await orders.findOne({ idempotencyKey: body.idempotencyKey });
-      if (retry) return retry;
-    }
+    if(error?.code===11000&&(error.keyPattern?.idempotencyKey||error.keyValue?.idempotencyKey)){const retry=await orders.findOne({idempotencyKey:key});return resolveIdempotentOrder(retry,context,body,fingerprint);}
+    if(error?.code===11000&&(error.keyPattern?.orderNumber||error.keyValue?.orderNumber)){if(attempt<2)continue;throw Object.assign(new Error("Could not allocate an order number"),{status:503});}
     throw error;
-  } finally { await session.endSession(); }
+  } finally { await session.endSession(); }}
+  throw Object.assign(new Error("Could not create order"),{status:503});
 };
 
 export const restoreInventory = async (order, session, database = getDatabase()) => {
