@@ -85,6 +85,16 @@ export const deleteProduct = async (req, res) => {
 };
 
 export const getAdminProducts = async (req, res) => {
-  const result = await collection().find({}).sort({ createdAt: -1 }).toArray();
-  res.json({ products: result, count: result.length });
+  const page=Math.max(1,Number.parseInt(req.query.page,10)||1),limit=Math.min(50,Math.max(1,Number.parseInt(req.query.limit,10)||15));
+  const filter={};
+  if(req.query.search?.trim()){const value=escapeRegex(req.query.search.trim());filter.$or=["name","sku","category"].map(field=>({[field]:{$regex:value,$options:"i"}}));}
+  if(req.query.category?.trim())filter.category={$regex:`^${escapeRegex(req.query.category.trim())}$`,$options:"i"};
+  if(req.query.status==="active")filter.active={$ne:false};
+  if(req.query.status==="inactive")filter.active=false;
+  const effectiveStock={$cond:[{$gt:[{$size:{$ifNull:["$variants",[]]}},0]},{$sum:{$map:{input:{$filter:{input:"$variants",as:"variant",cond:{$ne:["$$variant.active",false]}}},as:"variant",in:{$ifNull:["$$variant.stock",0]}}}},{$ifNull:["$stock",0]}]};
+  if(req.query.stockStatus==="in_stock")filter.$expr={$gt:[effectiveStock,0]};
+  if(req.query.stockStatus==="out_of_stock")filter.$expr={$lte:[effectiveStock,0]};
+  if(req.query.stockStatus==="low_stock")filter.$expr={$and:[{$gt:[effectiveStock,0]},{$lte:[effectiveStock,{$ifNull:["$lowStockThreshold",5]}]}]};
+  const[result,count]=await Promise.all([collection().find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).toArray(),collection().countDocuments(filter)]);
+  res.json({products:result,count,page,limit,totalPages:Math.ceil(count/limit)});
 };
