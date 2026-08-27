@@ -32,6 +32,12 @@ export const ensureIndexes = async () => {
     database.collection("orders").createIndex({ orderNumber: 1 }, { unique: true }),
     database.collection("orders").createIndex({ idempotencyKey: 1 }, { unique: true }),
     database.collection("orders").createIndex({ "payment.transactionId": 1 }, { unique: true, partialFilterExpression: { "payment.transactionId": { $type: "string", $gt: "" } } }),
+    database.collection("orders").createIndex({ orderStatus: 1, createdAt: -1 }),
+    database.collection("reviews").createIndex({ userId: 1, productId: 1 }, { unique: true }),
+    database.collection("reviews").createIndex({ productId: 1, status: 1, createdAt: -1 }),
+    database.collection("coupons").createIndex({ code: 1 }, { unique: true }),
+    database.collection("newsletterSubscribers").createIndex({ email: 1 }, { unique: true }),
+    database.collection("contactMessages").createIndex({ status: 1, createdAt: -1 }),
   ]);
 };
 

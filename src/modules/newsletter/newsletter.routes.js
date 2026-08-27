@@ -1,0 +1,1 @@
+import{Router}from"express";import{rateLimit}from"express-rate-limit";import asyncHandler from"../../utils/asyncHandler.js";import{subscribe}from"./newsletter.controller.js";const r=Router();r.post("/subscribe",rateLimit({windowMs:15*60*1000,limit:10}),asyncHandler(subscribe));export default r;

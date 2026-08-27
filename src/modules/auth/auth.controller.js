@@ -26,8 +26,8 @@ export const createSession = async (req, res) => {
   await users.updateOne(
     { firebaseUid: decoded.uid },
     {
-      $set: { email: decoded.email.toLowerCase(), name: decoded.name || "", photoURL: decoded.picture || "", updatedAt: now },
-      $setOnInsert: { phone: "", role: "customer", isBlocked: false, addresses: [], createdAt: now },
+      $set: { email: decoded.email.toLowerCase(), updatedAt: now },
+      $setOnInsert: { name: decoded.name || "", photoURL: decoded.picture || "", phone: "", role: "customer", isBlocked: false, addresses: [], createdAt: now },
     },
     { upsert: true },
   );
