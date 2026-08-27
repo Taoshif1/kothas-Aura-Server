@@ -5,7 +5,8 @@ import verifyAdmin from "../src/middleware/verifyAdmin.js";
 import { hydrateCartItems, mergeCartItems, validateCartSelection, validateQuantity } from "../src/modules/cart/cart.service.js";
 import { uniqueProductIds } from "../src/modules/wishlist/wishlist.service.js";
 import { calculateDeliveryCharge } from "../src/modules/checkout/checkout.service.js";
-import { makeOrderNumber, reserveInventory, restoreInventory, validateOrderInput } from "../src/modules/orders/order.service.js";
+import { createIdempotencyFingerprint, makeOrderNumber, reserveInventory, resolveIdempotentOrder, restoreInventory, validateOrderInput } from "../src/modules/orders/order.service.js";
+import { evaluateCoupon, normalizeCouponCode, validateCouponDocument } from "../src/modules/coupons/coupon.service.js";
 
 const simple = { _id: { toString: () => "product1" }, name: "Ring", sku: "R-1", price: 500, stock: 3, active: true, images: ["server.jpg"], variants: [] };
 const variantProduct = { ...simple, variants: [{ sku: "R-1-GOLD", attributes: { Color: "Gold" }, price: 650, compareAtPrice: null, stock: 2, active: true }] };
@@ -55,4 +56,27 @@ describe("checkout and order rules", () => {
   it("restores simple stock", async () => { const calls=[];const database={collection:()=>({updateOne:async(...args)=>calls.push(args)})};await restoreInventory({inventoryRestored:false,items:[{productId:"p1",quantity:2}]},null,database);expect(calls[0][1].$inc.stock).toBe(2); });
   it("restores only the purchased variant", async () => { const calls=[];const database={collection:()=>({updateOne:async(...args)=>calls.push(args)})};await restoreInventory({inventoryRestored:false,items:[{productId:"p1",variantSku:"R-7",quantity:2}]},null,database);expect(calls[0][2].arrayFilters).toEqual([{"variant.sku":"R-7"}]); });
   it("does not restore inventory twice", async () => { let calls=0;const database={collection:()=>({updateOne:async()=>{calls+=1}})};await restoreInventory({inventoryRestored:true,items:[{productId:"p1",quantity:2}]},null,database);expect(calls).toBe(0); });
+});
+
+describe("idempotency request fingerprint",()=>{const body={orderSource:"buy_now",customer:{name:"Customer",phone:"01700-000000"},deliveryAddress:{recipientName:"Customer",phone:"01700000000",addressLine:" Road 1 ",area:"Dhanmondi",city:"Dhaka",postalCode:"1209",deliveryZone:"inside_dhaka"},payment:{method:"cod"},couponCode:" aura10 "},items=[{productId:"p1",variantSku:null,quantity:1}];const make=(changes={},context={userId:"u1",customerType:"registered"})=>createIdempotencyFingerprint({...body,...changes},{...context,selections:changes.items||items});
+  it("is deterministic for the same normalized request",()=>expect(make()).toBe(make()));
+  it("binds registered retries to the authenticated user",()=>expect(make()).not.toBe(make({}, {userId:"u2",customerType:"registered"})));
+  it("binds guest retries to normalized phone",()=>expect(make({}, {customerType:"guest"})).not.toBe(make({customer:{...body.customer,phone:"01800000000"}},{customerType:"guest"})));
+  it("rejects materially changed item quantities by fingerprint",()=>expect(make()).not.toBe(make({items:[{...items[0],quantity:2}]})));
+  it("binds retries to delivery and payment details",()=>{expect(make()).not.toBe(make({deliveryAddress:{...body.deliveryAddress,area:"Gulshan"}}));expect(make()).not.toBe(make({payment:{method:"bkash",transactionId:"TX12345"}}))});
+  it("normalizes item order and coupon casing",()=>{const a=createIdempotencyFingerprint({...body,couponCode:"aura10"},{userId:"u1",customerType:"registered",selections:[{productId:"p2",quantity:1},{productId:"p1",quantity:1}]});const b=createIdempotencyFingerprint({...body,couponCode:" AURA10 "},{userId:"u1",customerType:"registered",selections:[{productId:"p1",quantity:1},{productId:"p2",quantity:1}]});expect(a).toBe(b)});
+  it("returns an existing order only for the same registered actor and fingerprint",()=>{const fingerprint=make(),order={customerType:"registered",userId:"u1",idempotencyFingerprint:fingerprint};expect(resolveIdempotentOrder(order,{userId:"u1",customerType:"registered"},body,fingerprint)).toBe(order)});
+  it("rejects cross-customer registered replay without exposing the order",()=>{const fingerprint=make(),order={customerType:"registered",userId:"u1",idempotencyFingerprint:fingerprint};expect(()=>resolveIdempotentOrder(order,{userId:"u2",customerType:"registered"},body,fingerprint)).toThrow(/different order request/)});
+  it("rejects guest replay from a different phone",()=>{const guestBody={...body,customer:{...body.customer,phone:"01700000000"}},fingerprint=createIdempotencyFingerprint(guestBody,{customerType:"guest",selections:items}),order={customerType:"guest",customer:{phone:"01700000000"},idempotencyFingerprint:fingerprint};expect(()=>resolveIdempotentOrder(order,{customerType:"guest"},{...guestBody,customer:{...guestBody.customer,phone:"01800000000"}},fingerprint)).toThrow(/different order request/)});
+  it("fails closed for historical orders without a fingerprint",()=>expect(()=>resolveIdempotentOrder({customerType:"registered",userId:"u1"},{userId:"u1",customerType:"registered"},body,make())).toThrow(/different order request/));
+});
+
+describe("coupon rules",()=>{const base={code:"AURA10",type:"percentage",value:10,minimumOrder:0,maximumDiscount:null,usageLimit:null,usedCount:0,active:true};
+  it("normalizes coupon codes to uppercase",()=>expect(normalizeCouponCode(" aura10 ")).toBe("AURA10"));
+  it("calculates percentage discounts",()=>expect(evaluateCoupon(base,1000)).toBe(100));
+  it("calculates fixed discounts without exceeding subtotal",()=>expect(evaluateCoupon({...base,type:"fixed",value:500},300)).toBe(300));
+  it("respects maximum percentage discount",()=>expect(evaluateCoupon({...base,value:50,maximumDiscount:200},1000)).toBe(200));
+  it("rejects minimum-order and exhausted coupons",()=>{expect(()=>evaluateCoupon({...base,minimumOrder:1000},500)).toThrow(/Minimum/);expect(()=>evaluateCoupon({...base,usageLimit:2,usedCount:2},1000)).toThrow(/usage limit/)});
+  it("rejects upcoming and expired coupons",()=>{const now=new Date("2026-01-10");expect(()=>evaluateCoupon({...base,startsAt:new Date("2026-02-01")},1000,now)).toThrow(/not active/);expect(()=>evaluateCoupon({...base,expiresAt:new Date("2026-01-01")},1000,now)).toThrow(/expired/)});
+  it("validates percentage values and date order",()=>{expect(()=>validateCouponDocument({...base,value:101})).toThrow(/value/);expect(()=>validateCouponDocument({...base,startsAt:"2026-02-01",expiresAt:"2026-01-01"})).toThrow(/after/)});
 });
