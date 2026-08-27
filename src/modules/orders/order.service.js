@@ -6,12 +6,24 @@ import { normalizePhone } from "../addresses/address.controller.js";
 const allowedPayments = new Set(["cod", "bkash", "nagad"]);
 export const makeOrderNumber = () => `KA-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomBytes(4).toString("hex").toUpperCase()}`;
 const normalizedText = (value) => String(value || "").trim();
+export const normalizeOrderSelections = (selections = []) => selections.map((item) => ({
+  productId: String(item.productId || ""),
+  variantSku: normalizedText(item.variantSku),
+  quantity: Number(item.quantity),
+})).sort((a, b) => `${a.productId}:${a.variantSku}`.localeCompare(`${b.productId}:${b.variantSku}`));
+export const assertCartSelectionsMatch = (authoritativeSelections, requestSelections) => {
+  if (JSON.stringify(normalizeOrderSelections(authoritativeSelections)) !== JSON.stringify(normalizeOrderSelections(requestSelections))) {
+    throw Object.assign(new Error("Your cart changed. Refresh checkout and try again."), { status: 409 });
+  }
+};
 export const createIdempotencyFingerprint = (body, { userId = null, selections = [], customerType }) => {
   const material = {
     customerType,
     actor: customerType === "registered" ? String(userId || "") : normalizePhone(body.customer?.phone || ""),
     orderSource: body.orderSource,
-    items: selections.map((item) => ({ productId: String(item.productId || ""), variantSku: normalizedText(item.variantSku), quantity: Number(item.quantity) })).sort((a,b)=>`${a.productId}:${a.variantSku}`.localeCompare(`${b.productId}:${b.variantSku}`)),
+    items: normalizeOrderSelections(selections),
+    customerName: normalizedText(body.customer?.name),
+    customerEmail: normalizedText(body.customer?.email).toLowerCase(),
     customerPhone: normalizePhone(body.customer?.phone || ""),
     deliveryAddress: { recipientName: normalizedText(body.deliveryAddress?.recipientName), phone: normalizePhone(body.deliveryAddress?.phone || ""), addressLine: normalizedText(body.deliveryAddress?.addressLine), area: normalizedText(body.deliveryAddress?.area), city: normalizedText(body.deliveryAddress?.city), postalCode: normalizedText(body.deliveryAddress?.postalCode), deliveryZone: body.deliveryAddress?.deliveryZone || "" },
     payment: { method: body.payment?.method || "", transactionId: normalizedText(body.payment?.transactionId), senderPhone: normalizePhone(body.payment?.senderPhone || "") },
@@ -63,12 +75,13 @@ const uniqueOrderNumber = async (orders, session) => {
   throw Object.assign(new Error("Could not allocate an order number"), { status: 503 });
 };
 
-export const createOrder = async (body, { userId = null, selections, customerType }) => {
+export const createOrder = async (body, { userId = null, selections, fingerprintSelections = selections, customerType }) => {
   const orders = getDatabase().collection("orders");
   const key=body.idempotencyKey?.trim();if(!key||key.length>128)throw Object.assign(new Error("A valid idempotency key is required"),{status:400});
-  const context={userId,customerType},fingerprint=createIdempotencyFingerprint(body,{...context,selections});
+  const context={userId,customerType},fingerprint=createIdempotencyFingerprint(body,{...context,selections:fingerprintSelections});
   const existing = await orders.findOne({ idempotencyKey: key });
   if (existing) return resolveIdempotentOrder(existing,context,body,fingerprint);
+  if(customerType==="registered"&&body.orderSource==="cart")assertCartSelectionsMatch(selections,fingerprintSelections);
   for(let attempt=0;attempt<3;attempt+=1){const session = client.startSession();let order;
   try { await session.withTransaction(async () => {
       const calculation = await calculateCheckout(selections, body.deliveryAddress?.deliveryZone, { session, couponCode: body.couponCode });
