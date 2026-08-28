@@ -25,6 +25,7 @@ import newsletterRoutes from "./modules/newsletter/newsletter.routes.js";
 import adminNewsletterRoutes from "./modules/newsletter/adminNewsletter.routes.js";
 import reviewRoutes from "./modules/reviews/review.routes.js";
 import adminReviewRoutes from "./modules/reviews/adminReview.routes.js";
+import uploadRoutes from "./modules/uploads/upload.routes.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -72,6 +73,7 @@ app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/admin/subscribers", adminNewsletterRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin/reviews", adminReviewRoutes);
+app.use("/api/admin/uploads", uploadRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
