@@ -6,3 +6,4 @@ dist/
 build/
 *service-account*.json
 *.pem
+.vercel
