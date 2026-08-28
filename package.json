@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Kotha's Aura Backend",
   "main": "src/server.js",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "test": "vitest run",
     "dev": "nodemon src/server.js",
