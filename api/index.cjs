@@ -9,7 +9,7 @@ const errorCategory = (error) => {
   return "application_initialization";
 };
 
-export default async function handler(request, response) {
+module.exports = async function handler(request, response) {
   try {
     const app = await appPromise;
     return app(request, response);
@@ -21,4 +21,4 @@ export default async function handler(request, response) {
       category,
     });
   }
-}
+};
