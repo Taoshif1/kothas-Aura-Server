@@ -20,6 +20,11 @@
     "bcrypt@6.0.0": true,
     "protobufjs@7.6.5": true
   },
+  "overrides": {
+    "jwks-rsa": {
+      "jose": "4.15.9"
+    }
+  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
